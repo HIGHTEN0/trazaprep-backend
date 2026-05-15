@@ -15,26 +15,33 @@ const tipoLabel: Record<number, string> = {
 router.get("/casilla/:clave", async (req: Request, res: Response) => {
   try {
     const { clave } = req.params;
-    const bitacora = await contrato.obtenerBitacora(clave);
-    
+
+    // Intentamos obtener la bitácora; si revierte (clave sin eventos), devolvemos []
+    let bitacora;
+    try {
+      bitacora = await contrato.obtenerBitacora(clave);
+    } catch (errorContrato) {
+      console.warn(`La casilla ${clave} no tiene eventos o no existe.`);
+      return res.json([]);
+    }
+
     const resultado = bitacora.map((evento: any) => ({
       casillaClave: evento.casillaClave,
       hashSHA256: (evento.hashSHA256 as string).startsWith("0x")
         ? evento.hashSHA256
         : "0x" + evento.hashSHA256,
-      tipo: evento.tipo,
-      tipoLabel: tipoLabel[evento.tipo] || "DESCONOCIDO",
-      timestamp: Number(evento.timestamp), // segundos Unix
+      tipo: Number(evento.tipo),                 // ← BigInt → Number
+      tipoLabel: tipoLabel[Number(evento.tipo)] || "DESCONOCIDO",
+      timestamp: Number(evento.timestamp),       // ← BigInt → Number
       registrador: evento.registrador,
     }));
-    
+
     res.json(resultado);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error al obtener la bitácora" });
   }
 });
-
 // GET /casillas - lista de todas las casillas registradas
 router.get("/casillas", async (_req: Request, res: Response) => {
   try {
