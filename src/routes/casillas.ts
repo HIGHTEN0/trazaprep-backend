@@ -19,10 +19,12 @@ router.get("/casilla/:clave", async (req: Request, res: Response) => {
     
     const resultado = bitacora.map((evento: any) => ({
       casillaClave: evento.casillaClave,
-      hashSHA256: evento.hashSHA256,
+      hashSHA256: (evento.hashSHA256 as string).startsWith("0x")
+        ? evento.hashSHA256
+        : "0x" + evento.hashSHA256,
       tipo: evento.tipo,
       tipoLabel: tipoLabel[evento.tipo] || "DESCONOCIDO",
-      timestamp: Number(evento.timestamp),
+      timestamp: Number(evento.timestamp), // segundos Unix
       registrador: evento.registrador,
     }));
     
@@ -54,11 +56,11 @@ router.get("/stats", async (_req: Request, res: Response) => {
     const totalCasillas = (await contrato.totalCasillas()).toString();
     const bloqueActual = await provider.getBlockNumber();
 
-    // ⚠️ totalEventos omitido por límite de Alchemy Free
+    // totalEventos temporalmente en 0 (limitación Alchemy Free)
     res.json({
       totalCasillas,
-      totalEventos: 0, // temporal, ver alternativas abajo
-      bloqueActual,
+      totalEventos: "0",  // string para el frontend
+      bloqueActual: bloqueActual.toString(),
       contractAddress: process.env.CONTRACT_ADDRESS,
       network: "Sepolia",
     });
@@ -77,28 +79,27 @@ router.get("/resumen", async (_req: Request, res: Response) => {
     for (let i = 0; i < total; i++) {
       const clave = await contrato.casillasRegistradas(i);
       const bitacora = await contrato.obtenerBitacora(clave);
+      const totalEventos = bitacora.length;
 
-      if (bitacora.length === 0) {
-        // Si no hay eventos (caso extraño), devolvemos vacío con totalEventos = 0
-        resumen.push({
-          clave,
-          ultimoHash: null,
-          ultimoTipo: null,
-          ultimoTipoLabel: null,
-          ultimoTimestamp: null,
-          totalEventos: 0,
-        });
+      let estado: string;
+      if (totalEventos === 0) {
+        estado = "sin-registro";
+      } else if (totalEventos >= 4) {
+        estado = "completa";
       } else {
-        const ultimo = bitacora[bitacora.length - 1];
-        resumen.push({
-          clave,
-          ultimoHash: ultimo.hashSHA256,
-          ultimoTipo: ultimo.tipo,
-          ultimoTipoLabel: tipoLabel[ultimo.tipo] || "DESCONOCIDO",
-          ultimoTimestamp: Number(ultimo.timestamp),
-          totalEventos: bitacora.length,
-        });
+        estado = "en-proceso";
       }
+
+      const ultimoTimestamp = totalEventos > 0
+        ? Number(bitacora[bitacora.length - 1].timestamp)
+        : null;
+
+      resumen.push({
+        clave,
+        estado,
+        eventosCount: totalEventos,
+        ultimoTimestamp,
+      });
     }
 
     res.json(resumen);
@@ -112,13 +113,18 @@ router.get("/resumen", async (_req: Request, res: Response) => {
 router.post("/verificar", async (req: Request, res: Response) => {
   try {
     const { clave, hash } = req.body;
-    const [coincide, timestamp] = await contrato.verificarHash(clave, hash);
+    // El frontend manda el hash sin "0x", lo añadimos
+    const hashConPrefijo = "0x" + hash;
+    const [coincide, timestamp] = await contrato.verificarHash(clave, hashConPrefijo);
+    const timestampISO = coincide
+      ? new Date(Number(timestamp) * 1000).toISOString()
+      : null;
     res.json({
       coincide,
-      timestamp: coincide ? timestamp.toString() : null,
+      timestamp: timestampISO,
       mensaje: coincide
-        ? " El hash coincide con el acta registrada"
-        : " El hash no coincide con ningún registro",
+        ? "El hash coincide con el acta registrada."
+        : "El hash no coincide con ningún registro.",
     });
   } catch (error) {
     console.error(error);
