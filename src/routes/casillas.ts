@@ -117,8 +117,8 @@ router.post("/verificar", async (req: Request, res: Response) => {
       coincide,
       timestamp: coincide ? timestamp.toString() : null,
       mensaje: coincide
-        ? "✅ El hash coincide con el acta registrada"
-        : "❌ El hash no coincide con ningún registro",
+        ? " El hash coincide con el acta registrada"
+        : " El hash no coincide con ningún registro",
     });
   } catch (error) {
     console.error(error);
