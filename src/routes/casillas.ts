@@ -45,11 +45,11 @@ router.get("/casilla/:clave", async (req: Request, res: Response) => {
 // GET /casillas - lista de todas las casillas registradas
 router.get("/casillas", async (_req: Request, res: Response) => {
   try {
-    const total = await contrato.totalCasillas();
-    const casillas = [];
-    for (let i = 0; i < total; i++) {
-      casillas.push(await contrato.casillasRegistradas(i));
-    }
+    const total = Number(await contrato.totalCasillas());
+    const indices = Array.from({ length: total }, (_, i) => i);
+    const casillas = await Promise.all(
+      indices.map(i => contrato.casillasRegistradas(i))
+    );
     res.json(casillas);
   } catch (error) {
     console.error(error);
@@ -80,34 +80,30 @@ router.get("/stats", async (_req: Request, res: Response) => {
 // GET /resumen - resumen de la última actividad de cada casilla
 router.get("/resumen", async (_req: Request, res: Response) => {
   try {
-    const total = await contrato.totalCasillas();
-    const resumen: any[] = [];
+    const total = Number(await contrato.totalCasillas());
+    const indices = Array.from({ length: total }, (_, i) => i);
 
-    for (let i = 0; i < total; i++) {
-      const clave = await contrato.casillasRegistradas(i);
-      const bitacora = await contrato.obtenerBitacora(clave);
-      const totalEventos = bitacora.length;
+    // Todas las claves en paralelo
+    const claves = await Promise.all(
+      indices.map(i => contrato.casillasRegistradas(i))
+    );
 
-      let estado: string;
-      if (totalEventos === 0) {
-        estado = "sin-registro";
-      } else if (totalEventos >= 4) {
-        estado = "completa";
-      } else {
-        estado = "en-proceso";
-      }
+    // Todas las bitácoras en paralelo
+    const bitacoras = await Promise.all(
+      claves.map(clave => contrato.obtenerBitacora(clave))
+    );
 
-      const ultimoTimestamp = totalEventos > 0
-        ? Number(bitacora[bitacora.length - 1].timestamp)
-        : null;
-
-      resumen.push({
+    const resumen = claves.map((clave, i) => {
+      const eventos = bitacoras[i];
+      const count = eventos.length;
+      const estado = count === 0 ? "sin-registro" : count >= 4 ? "completa" : "en-proceso";
+      return {
         clave,
         estado,
-        eventosCount: totalEventos,
-        ultimoTimestamp,
-      });
-    }
+        eventosCount: count,
+        ultimoTimestamp: count > 0 ? Number(eventos[count - 1].timestamp) : null,
+      };
+    });
 
     res.json(resumen);
   } catch (error) {
